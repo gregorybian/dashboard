@@ -1,0 +1,65 @@
+{% macro ping_ctl(it) %}
+<span class="review-ctl">
+{% if it.meta.owner_ids %}
+  <button data-post="/api/monday/ping?item_id={{ it.meta.item_id }}"
+          data-confirm="Click again to ping {{ it.meta.owner }}" data-busy="Posting…"
+          title="Post an update on this Monday item @mentioning {{ it.meta.owner }}">📣 {{ 'Ping again' if it.meta.pinged_ts else 'Ping owner' }}</button>
+{% elif it.meta.mine %}
+  <span class="muted">your project, post an update</span>
+{% else %}
+  <span class="muted" title="Assign someone in the People column to enable pinging">no owner to ping</span>
+{% endif %}
+{% if it.meta.pinged_ts %}<span class="muted">pinged {{ it.meta.pinged_ts|ago }} ago</span>{% endif %}
+</span>
+{% endmacro %}
+
+{% macro review_ctl(repo, number) %}
+{% set r = reviews.get(repo ~ '#' ~ number) %}
+<span class="review-ctl">
+{% if r and r.state in ('queued', 'running') %}
+  <span class="rv-running"><span class="spinner"></span>Claude reviewing… {{ r.started|ago }}</span>
+{% else %}
+  <button data-post="/api/review?repo={{ repo|urlencode }}&number={{ number }}"
+          data-confirm="Click again to post review" data-busy="Starting…"
+          title="Run Claude Code on this PR and post the review to GitHub as you">🔍 {{ 'Re-review' if r and r.state == 'posted' else 'Review' }}</button>
+  {% if r and r.state == 'posted' %}<a class="rv-ok" href="{{ r.url }}" target="_blank" rel="noopener">✓ posted {{ r.finished|ago }} ago</a>
+  {% elif r and r.state == 'failed' %}<span class="rv-fail" title="{{ r.error }}">⚠ review failed (hover)</span>{% endif %}
+{% endif %}
+</span>
+{% endmacro %}
+
+{% macro item_card(it, show_source=False) %}
+<article class="item p{{ it.priority }}">
+  <div class="item-head">
+    {% if show_source %}<span class="src src-{{ it.source }}">{{ it.source }}</span>{% endif %}
+    <a class="item-title" href="{{ it.url }}" target="_blank" rel="noopener">{{ it.title }}</a>
+    {% if it.meta.count and it.meta.count > 1 %}<span class="pill">{{ it.meta.count }} new</span>{% endif %}
+    <span class="when" title="first unanswered {{ it.ts|ago }} ago">{{ it.updated_ts|ago }}</span>
+  </div>
+  {% if it.meta.parent %}<div class="parent">↳ {{ it.meta.parent }}</div>{% endif %}
+  {% if it.body %}<div class="body">{% if it.author and it.source == 'slack' %}<b>{{ it.author }}:</b> {% endif %}{{ it.body }}</div>{% endif %}
+  {% if not readonly %}
+  <div class="actions">
+    {% if it.source == 'github' %}{{ review_ctl(it.meta.repo, it.meta.number) }}{% endif %}
+    {% if it.source == 'monday' %}{{ ping_ctl(it) }}{% endif %}
+    <button data-action="done" data-id="{{ it.id }}" title="Hide until there's new activity">✓ Done</button>
+    <button data-action="mute" data-id="{{ it.id }}" title="Never show this again">🔕 {{ 'Leave thread' if it.kind in ('thread', 'mention') else 'Mute' }}</button>
+  </div>
+  {% endif %}
+</article>
+{% endmacro %}
+
+{% macro closed_list(closed) %}
+{% if closed %}
+<details class="closed">
+  <summary>Closed in the last 24h ({{ closed|length }})</summary>
+  {% for it in closed %}
+  <div class="closed-row">
+    <span class="state state-{{ it.state }}">{{ it.state }}</span>
+    <a href="{{ it.url }}" target="_blank" rel="noopener">{{ it.title }}</a>
+    {% if not readonly %}<button data-action="reopen" data-id="{{ it.id }}">Reopen</button>{% endif %}
+  </div>
+  {% endfor %}
+</details>
+{% endif %}
+{% endmacro %}

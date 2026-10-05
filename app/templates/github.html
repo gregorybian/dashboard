@@ -1,0 +1,28 @@
+{% from "_macros.html" import item_card, closed_list, review_ctl with context %}
+<section>
+  <h2>PR reminders <span class="muted">{{ items|length }}</span></h2>
+  {% for it in items %}{{ item_card(it) }}{% else %}<p class="empty">No PRs need you.</p>{% endfor %}
+</section>
+{{ closed_list(closed) }}
+{% if snapshot and snapshot.prs %}
+<section>
+  <h2>All open PRs <span class="muted">{{ snapshot.prs|length }}</span></h2>
+  <div class="table-wrap"><table class="prs">
+    <thead><tr><th>PR</th><th>Author</th><th>Review</th><th>CI</th><th>Age</th><th>Idle</th>{% if not readonly %}<th></th>{% endif %}</tr></thead>
+    <tbody>
+    {% for p in snapshot.prs %}
+    <tr class="{{ 'mine' if p.author == snapshot.me }}">
+      <td><a href="{{ p.url }}" target="_blank" rel="noopener">{{ p.repo.split('/')[-1] }}#{{ p.number }}</a>
+          {% if p.draft %}<span class="pill">draft</span>{% endif %} {{ p.title }}</td>
+      <td>{{ p.author }}</td>
+      <td><span class="badge rv-{{ (p.decision or 'none')|lower }}">{{ (p.decision or ('reviewed' if p.reviews else 'none'))|replace('_', ' ')|lower }}</span></td>
+      <td><span class="badge ci-{{ (p.ci or 'none')|lower }}">{{ (p.ci or '—')|lower }}</span></td>
+      <td>{{ p.created|ago }}</td>
+      <td>{{ p.updated|ago }}</td>
+      {% if not readonly %}<td>{% if not p.draft %}{{ review_ctl(p.repo, p.number) }}{% endif %}</td>{% endif %}
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endif %}

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Solar Dashboard</title>
+  <style>{{ css|safe }}</style>
+</head>
+{# Read-only copy of index.html for gregorybian.github.io/solar-dashboard: every tab is pre-rendered
+   (readonly=True hides the buttons that call the local API) and tabs switch client-side. #}
+<body>
+  <header class="top">
+    <div class="brand">☀ UBC Solar</div>
+    <nav class="tabs">
+      {% for t in tabs %}<button class="tab" data-tab="{{ t }}">{{ t|capitalize }}<span class="count">{{ tab_counts[t] or '' }}</span></button>{% endfor %}
+    </nav>
+    <button class="refresh" id="lock" title="Forget the password on this device">🔒 Lock</button>
+  </header>
+  <div id="status">
+    {{ header_html|safe }}
+  </div>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <button class="sb-toggle" id="sb-toggle" title="Collapse task sidebar">«</button>
+      <button class="sb-open" id="sb-open" title="Show tasks">☰<span class="sb-vert">Tasks</span><span class="count" id="sb-count">{{ todo_count or '' }}</span></button>
+      <div class="sb-body" id="tasks">{{ tasks_html|safe }}</div>
+      <div class="sb-resize" id="sb-resize" title="Drag to resize, double-click to reset"></div>
+    </aside>
+    <main id="main">
+      {% for t in tabs %}<div class="pane" data-pane="{{ t }}" hidden>{{ panes[t]|safe }}</div>{% endfor %}
+    </main>
+  </div>
+  <script>
+  {{ sidebar_js|safe }}
+  (() => {
+    const tabs = {{ tabs|tojson }};
+    let tab;
+    try { tab = localStorage.getItem("tab"); } catch (e) {}
+    function selectTab(t) {
+      if (!tabs.includes(t)) t = tabs[0];
+      try { localStorage.setItem("tab", t); } catch (e) {}
+      document.querySelectorAll(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab === t));
+      document.querySelectorAll(".pane").forEach(p => { p.hidden = p.dataset.pane !== t; });
+    }
+    document.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => selectTab(b.dataset.tab)));
+    selectTab(tab);
+    document.getElementById("lock").addEventListener("click", () => parent.postMessage({ type: "solar-dash-lock" }, "*"));
+
+    // How old this snapshot is, kept current while the page is open.
+    const generated = {{ generated_at }};
+    const age = document.createElement("span");
+    document.querySelector(".statusbar")?.append(age);
+    function tick() {
+      const s = Math.max(0, Date.now() / 1000 - generated);
+      const [n, u] = s >= 86400 ? [s / 86400, "d"] : s >= 3600 ? [s / 3600, "h"] : s >= 60 ? [s / 60, "m"] : [0, ""];
+      const stale = s > 30 * 60;
+      age.className = "sync " + (stale ? "err" : "ok");
+      age.textContent = "snapshot · " + (u ? `${Math.floor(n)}${u} ago` : "just now") + (stale ? " (laptop may be offline)" : "");
+    }
+    tick();
+    setInterval(tick, 30000);
+    document.title = {{ tab_counts.todo }} ? `({{ tab_counts.todo }}) Solar Dashboard` : "Solar Dashboard";
+  })();
+  </script>
+</body>
+</html>

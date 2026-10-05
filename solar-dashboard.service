@@ -1,0 +1,12 @@
+[Unit]
+Description=UBC Solar dashboard (Slack / Monday / GitHub)
+After=network-online.target graphical-session.target
+
+[Service]
+WorkingDirectory=%h/Desktop/UBC_Solar/solar_dashboard
+ExecStart=%h/Desktop/UBC_Solar/solar_dashboard/.venv/bin/python -m app
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

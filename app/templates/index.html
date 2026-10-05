@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Solar Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css?v={{ version }}">
+</head>
+<body data-version="{{ version }}">
+  <header class="top">
+    <div class="brand">☀ UBC Solar</div>
+    <nav class="tabs">
+      {% for t in tabs %}<button class="tab" data-tab="{{ t }}">{{ t|capitalize }}<span class="count" data-count="{{ t }}"></span></button>{% endfor %}
+    </nav>
+    <button class="refresh" id="refresh" title="Poll all sources now">↻ Refresh</button>
+  </header>
+  <div id="status"></div>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <button class="sb-toggle" id="sb-toggle" title="Collapse task sidebar">«</button>
+      <button class="sb-open" id="sb-open" title="Show tasks">☰<span class="sb-vert">Tasks</span><span class="count" id="sb-count"></span></button>
+      <div class="sb-body" id="tasks"></div>
+      <div class="sb-resize" id="sb-resize" title="Drag to resize, double-click to reset"></div>
+    </aside>
+    <main id="main"><p class="empty">Loading…</p></main>
+  </div>
+  <script src="/static/sidebar.js?v={{ version }}"></script>
+  <script src="/static/app.js?v={{ version }}"></script>
+</body>
+</html>

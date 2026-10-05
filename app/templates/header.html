@@ -1,0 +1,15 @@
+<div class="statusbar" data-total="{{ total }}" data-version="{{ version }}">
+  {% for s in sources %}{% set st = status.get(s) %}
+  <span class="sync {{ 'err' if st and st.last_error else ('ok' if st and st.last_ok else 'wait') }}"
+        data-src="{{ s }}" data-n="{{ counts.get(s, 0) }}"
+        title="{{ st.last_error if st and st.last_error else '' }}">
+    {{ s }} · {% if st and st.last_error %}⚠ {{ st.last_error[:80] }}{% elif st and st.last_ok %}{% set a = st.last_ok|ago %}synced {{ "just now" if a == "now" else a ~ " ago" }}{% else %}waiting…{% endif %}
+  </span>
+  {% endfor %}
+  {% if publishing and not readonly %}{% set st = status.get('publish') %}
+  <span class="sync {{ 'err' if st and st.last_error else ('ok' if st and st.last_ok else 'wait') }}"
+        title="{{ st.last_error if st and st.last_error else 'Encrypted snapshot for gregorybian.github.io/solar-dashboard' }}">
+    portfolio · {% if st and st.last_error %}⚠ {{ st.last_error[:80] }}{% elif st and st.last_ok %}{% set a = st.last_ok|ago %}published {{ "just now" if a == "now" else a ~ " ago" }}{% else %}waiting…{% endif %}
+  </span>
+  {% endif %}
+</div>

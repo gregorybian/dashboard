@@ -1,0 +1,46 @@
+<section class="tasks" data-n="{{ todos|length }}">
+  <h2>My tasks <span class="muted">{{ todos|length }}</span></h2>
+  {% if not readonly %}
+  <form class="todo-add" id="todo-add">
+    <div class="todo-add-row">
+      <input name="text" placeholder="Add a task and press Enter…" maxlength="500" autocomplete="off" required>
+      <button type="submit">+ Add</button>
+    </div>
+    <textarea name="description" rows="2" maxlength="5000"
+              placeholder="Description (optional, Ctrl+Enter to add)"></textarea>
+  </form>
+  {% endif %}
+  {% for t in todos %}
+  <div class="todo">
+    {% if not readonly %}<button class="todo-check" data-todo="archive" data-id="{{ t.id }}" title="Archive this task">✓</button>{% endif %}
+    <div class="todo-main">
+      <div class="todo-head">
+        <span class="todo-text">{{ t.text }}</span>
+        {% if not readonly %}<button class="todo-edit" data-edit-desc title="{{ 'Edit' if t.description else 'Add' }} description">✎</button>{% endif %}
+        <span class="when">{{ t.created|ago }}</span>
+      </div>
+      {% if t.description %}<div class="todo-desc">{{ t.description }}</div>{% endif %}
+      {% if not readonly %}
+      <textarea class="todo-desc-edit" data-id="{{ t.id }}" rows="3" maxlength="5000"
+                placeholder="Description (Ctrl+Enter to save, Esc to cancel)">{{ t.description or '' }}</textarea>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}<p class="empty">No tasks of your own yet.</p>{% endfor %}
+</section>
+{% if archived %}
+<details class="closed" data-key="archive">
+  <summary>Archived tasks ({{ archived|length }})</summary>
+  {% for t in archived %}
+  <div class="closed-row">
+    {% set a = t.archived|ago %}<span class="state">{{ "just now" if a == "now" else a ~ " ago" }}</span>
+    <span class="todo-text archived">{{ t.text }}{% if t.description %}<span class="todo-desc">{{ t.description }}</span>{% endif %}</span>
+    {% if not readonly %}
+    <button data-todo="restore" data-id="{{ t.id }}">Restore</button>
+    <button data-post="/api/todos/{{ t.id }}/delete" data-confirm="Click again to delete" data-busy="Deleting…"
+            title="Delete permanently">Delete</button>
+    {% endif %}
+  </div>
+  {% endfor %}
+</details>
+{% endif %}

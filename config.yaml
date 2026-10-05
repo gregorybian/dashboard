@@ -1,0 +1,51 @@
+# Anything omitted falls back to the defaults in app/config.py.
+server:
+  host: 127.0.0.1
+  port: 8765
+
+# Which integrations run. Slack is off: the workspace is at its app limit
+# (see README). Add "slack" back once a user token is available.
+sources: [monday, github]
+
+poll_seconds:
+  slack: 120
+  github: 300
+  monday: 900
+
+slack:
+  dm_lookback_days: 7          # unanswered DMs older than this drop off
+  thread_lookback_days: 14     # threads you posted in within this window are watched
+  mention_lookback_days: 14
+  parent_lookback_days: 3      # your own top-level posts watched for replies
+  max_threads: 80
+  dm_hot_days: 7               # DMs active within this are checked every poll
+  dm_cold_checks_per_poll: 25  # other DMs are checked round-robin
+  include_bots: false
+  # Override if the default search syntax finds nothing in your workspace:
+  # mention_query: "<@{me}>"
+  # own_query: "from:<@{me}>"
+
+monday:
+  board_ids: [9565346490]                # e.g. [1234567890]; the number in the board URL
+  status_column_id: null       # null = first status column on the board
+  done_labels: ["Done", "Complete", "Completed"]   # dimmed on the kanban
+  stale_labels: ["Working on it"]   # only these columns need a weekly update ([] = all but done)
+  ignored_groups: []
+  stale_days: 7
+  reply_lookback_days: 14       # updates older than this don't ask for your comment
+
+github:
+  org: UBC-Solar
+  repos: [firmware_v3, firmware_v4, sunlink, sunlite, solar_tools, solar_workspace]
+  my_pr_no_review_days: 3
+  team_pr_stale_days: 5
+
+review:
+  model: null                  # null = Claude Code's default; e.g. "opus" or "sonnet"
+  timeout_minutes: 20
+  max_findings: 6              # cap on findings per review (keeps it short)
+  claude_path: null            # null = found on PATH / ~/.local/bin/claude
+
+notifications:
+  enabled: true
+  max_individual: 4            # more new items than this in one sync -> one summary

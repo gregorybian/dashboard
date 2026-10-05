@@ -1,0 +1,5 @@
+{% from "_macros.html" import item_card with context %}
+<section>
+  <h2>From Monday &amp; GitHub <span class="muted">{{ items|length }}</span></h2>
+  {% for it in items %}{{ item_card(it, show_source=True) }}{% else %}<p class="empty">Nothing waiting on you. 🌞</p>{% endfor %}
+</section>

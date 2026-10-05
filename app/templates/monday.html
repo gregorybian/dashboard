@@ -1,0 +1,39 @@
+{% from "_macros.html" import item_card, closed_list, review_ctl with context %}
+{% set stale = items|selectattr("kind", "equalto", "stale")|list %}
+{% set replies = items|rejectattr("kind", "equalto", "stale")|list %}
+<div class="columns">
+  <section>
+    <h2>No update this week <span class="muted">{{ stale|length }}</span></h2>
+    {% for it in stale %}{{ item_card(it) }}{% else %}<p class="empty">Every active project has an update this week.</p>{% endfor %}
+  </section>
+  <section>
+    <h2>Updated, needs your comment <span class="muted">{{ replies|length }}</span></h2>
+    {% for it in replies %}{{ item_card(it) }}{% else %}<p class="empty">You've commented on every recent update.</p>{% endfor %}
+  </section>
+</div>
+{{ closed_list(closed) }}
+{% if snapshot %}
+{% for b in snapshot.boards %}
+<section>
+  <h2>{{ b.name }}</h2>
+  <div class="kanban">
+    {% for lane in b.lanes %}
+    <div class="lane {{ 'lane-done' if lane.done }}">
+      <div class="lane-head">{{ lane.label }} <span class="muted">{{ lane.cards|length }}</span></div>
+      {% for c in lane.cards %}
+      <a class="card {{ 'stale' if c.stale }}" href="{{ c.url }}" target="_blank" rel="noopener">
+        <div class="card-name">{{ c.name }}</div>
+        <div class="card-meta">
+          {% if c.owner %}<span>{{ c.owner }}</span>{% endif %}
+          <span>{% if c.last_update_days is none %}no updates{% else %}updated {{ c.last_update_days }}d ago{% endif %}</span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% else %}
+<p class="empty">No board data yet — set <code>monday.board_ids</code> in config.yaml and MONDAY_TOKEN in .env.</p>
+{% endif %}

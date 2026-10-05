@@ -1,0 +1,10 @@
+{% from "_macros.html" import item_card, closed_list with context %}
+{% set groups = [("dm", "Direct messages"), ("mention", "Mentions"), ("thread", "Threads you're in")] %}
+{% for kind, label in groups %}
+{% set rows = items|selectattr("kind", "equalto", kind)|list %}
+<section>
+  <h2>{{ label }} <span class="muted">{{ rows|length }}</span></h2>
+  {% for it in rows %}{{ item_card(it) }}{% else %}<p class="empty">All caught up.</p>{% endfor %}
+</section>
+{% endfor %}
+{{ closed_list(closed) }}
