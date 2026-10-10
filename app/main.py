@@ -1,5 +1,6 @@
 import logging
 import time
+from datetime import date
 from contextlib import asynccontextmanager
 
 from fastapi import Body, FastAPI, HTTPException, Request, Response
@@ -7,7 +8,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, jobs, publish, review
+from . import db, gtasks, jobs, publish, review
 from .config import token
 from .sources import monday
 from .config import CONFIG, ROOT
@@ -43,7 +44,25 @@ def ago(ts):
     return "now"
 
 
+def due_label(due):
+    """(label, css class) for a YYYY-MM-DD due date, relative to today."""
+    d = date.fromisoformat(due)
+    days = (d - date.today()).days
+    if days == 0:
+        label = "Today"
+    elif days == 1:
+        label = "Tomorrow"
+    elif days == -1:
+        label = "Yesterday"
+    elif 1 < days < 7:
+        label = d.strftime("%a")
+    else:
+        label = d.strftime("%b %-d") + (d.strftime(", %Y") if d.year != date.today().year else "")
+    return label, "overdue" if days < 0 else "today" if days == 0 else "soon" if days < 7 else ""
+
+
 templates.env.filters["ago"] = ago
+templates.env.filters["due_label"] = due_label
 templates.env.globals["readonly"] = False  # True when publish.py renders the portfolio snapshot
 # Changes whenever the UI files change; open tabs compare it and reload themselves.
 templates.env.globals["version"] = str(int(max(
@@ -62,6 +81,7 @@ def header_context():
     return {
         "counts": counts, "total": sum(counts.values()),
         "status": db.status(), "sources": SOURCES, "publishing": publish.enabled(),
+        "gtasks": gtasks.enabled(),
     }
 
 
@@ -105,20 +125,37 @@ def item_action(action: str, item_id: str):
     return Response(status_code=204)
 
 
+def parse_due(due):
+    """'' -> None; otherwise must be YYYY-MM-DD."""
+    if not due:
+        return None
+    try:
+        return date.fromisoformat(due).isoformat()
+    except ValueError:
+        raise HTTPException(400, "due must be YYYY-MM-DD")
+
+
 @app.post("/api/todos", status_code=204)
-def todo_add(text: str = Body(), description: str = Body("")):
+def todo_add(text: str = Body(), description: str = Body(""), due: str = Body("")):
     text = text.strip()
     if not text:
         raise HTTPException(400, "empty task")
-    db.todo_add(text[:500], description.strip()[:5000])
-    jobs.publish_soon()
+    db.todo_add(text[:500], description.strip()[:5000], parse_due(due))
+    jobs.tasks_changed()
     return Response(status_code=204)
 
 
 @app.put("/api/todos/{todo_id}/description", status_code=204)
 def todo_describe(todo_id: int, description: str = Body(embed=True)):
     db.todo_describe(todo_id, description.strip()[:5000])
-    jobs.publish_soon()
+    jobs.tasks_changed()
+    return Response(status_code=204)
+
+
+@app.put("/api/todos/{todo_id}/due", status_code=204)
+def todo_due(todo_id: int, due: str = Body(embed=True)):
+    db.todo_set_due(todo_id, parse_due(due))
+    jobs.tasks_changed()
     return Response(status_code=204)
 
 
@@ -127,7 +164,7 @@ def todo_action(todo_id: int, action: str):
     if action not in ("archive", "restore", "delete"):
         raise HTTPException(400)
     db.todo_set(todo_id, action)
-    jobs.publish_soon()
+    jobs.tasks_changed()
     return Response(status_code=204)
 
 

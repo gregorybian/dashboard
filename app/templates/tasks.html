@@ -8,6 +8,7 @@
     </div>
     <textarea name="description" rows="2" maxlength="5000"
               placeholder="Description (optional, Ctrl+Enter to add)"></textarea>
+    <label class="todo-add-due">Due <input type="date" name="due" title="Due date (optional)"></label>
   </form>
   {% endif %}
   {% for t in todos %}
@@ -17,6 +18,12 @@
       <div class="todo-head">
         <span class="todo-text">{{ t.text }}</span>
         {% if not readonly %}<button class="todo-edit" data-edit-desc title="{{ 'Edit' if t.description else 'Add' }} description">✎</button>{% endif %}
+        {% set dl = t.due|due_label if t.due else ("", "unset") %}
+        {% if t.due or not readonly %}
+        <span class="due {{ dl[1] }}" title="{{ 'Due ' ~ t.due if t.due else 'Set a due date' }}">📅{{ ' ' ~ dl[0] if t.due }}
+          {% if not readonly %}<input type="date" class="todo-due" data-id="{{ t.id }}" value="{{ t.due or '' }}" aria-label="Due date">{% endif %}
+        </span>
+        {% endif %}
         <span class="when">{{ t.created|ago }}</span>
       </div>
       {% if t.description %}<div class="todo-desc">{{ t.description }}</div>{% endif %}

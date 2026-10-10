@@ -13,7 +13,8 @@ function render(el, html, force) {
   const openDetails = el.querySelector("details.closed[open]");
   // Keep a half-typed new task across re-renders.
   const draft = el.querySelector("#todo-add");
-  const saved = draft && { text: draft.elements.text.value, description: draft.elements.description.value };
+  const saved = draft && { text: draft.elements.text.value, description: draft.elements.description.value,
+                            due: draft.elements.due.value };
   el.innerHTML = html;
   if (openDetails) el.querySelector("details.closed")?.setAttribute("open", "");
   const form = el.querySelector("#todo-add");
@@ -74,6 +75,11 @@ document.addEventListener("click", async e => {
     ta.setSelectionRange(ta.value.length, ta.value.length);
     return;
   }
+  // The due chip hides a date input; open its calendar on any click (the picker's Clear removes the date).
+  if (e.target.matches(".todo-due")) {
+    try { e.target.showPicker(); } catch (err) {}
+    return;
+  }
   const todo = e.target.closest("[data-todo]");
   if (todo) {
     todo.closest(".todo, .closed-row")?.classList.add("leaving");
@@ -124,11 +130,11 @@ document.addEventListener("click", async e => {
 document.addEventListener("submit", async e => {
   if (e.target.id !== "todo-add") return;
   e.preventDefault();
-  const { text, description } = e.target.elements;
+  const { text, description, due } = e.target.elements;
   if (!text.value.trim()) return;
   await fetch("/api/todos", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: text.value, description: description.value }),
+    body: JSON.stringify({ text: text.value, description: description.value, due: due.value }),
   });
   e.target.reset();
   await load(true);
@@ -145,6 +151,15 @@ async function saveDesc(ta) {
   }
   load(true);
 }
+document.addEventListener("change", async e => {
+  if (!e.target.matches(".todo-due")) return;
+  await fetch(`/api/todos/${e.target.dataset.id}/due`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ due: e.target.value }),
+  });
+  e.target.blur();
+  load(true);
+});
 document.addEventListener("focusout", e => {
   if (e.target.matches(".todo-desc-edit")) saveDesc(e.target);
 });

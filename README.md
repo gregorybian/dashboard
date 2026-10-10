@@ -2,9 +2,11 @@
 
 A local web dashboard at **http://127.0.0.1:8765** that puts everything waiting on you in one place:
 
-- **Task sidebar** (every tab) — your own tasks with optional descriptions (**✎** to edit). **✓** archives a
+- **Task sidebar** (every tab) — your own tasks with optional descriptions (**✎** to edit) and due dates
+  (**📅** chip: click to set, change, or clear; overdue is red, today orange, this week blue; dated tasks sort first). **✓** archives a
   task; archived tasks sit in a collapsed list at the bottom with **Restore** and **Delete** (click twice).
   **«** collapses the sidebar; drag its right edge to resize (double-click resets). Both are remembered.
+  Optionally synced both ways with a Google Tasks list (see [Google Tasks](#google-tasks)).
 - **Todo** — every open Monday/GitHub item in one list.
 - **Monday** — read-only kanban of your project boards. Projects in a watched column
   (`monday.stale_labels`, default "Working on it") with no *Update* in 7 days are flagged, and
@@ -74,6 +76,28 @@ permissions **Pull requests: Read and write** (write is only used to post review
 **Contents: Read** (to check out PRs for review), **Commit statuses: Read**, **Actions: Read**, **Metadata: Read**.
 (The org may need to approve fine-grained tokens; a classic PAT with `repo` + `read:org` also works.)
 
+### Google Tasks
+The task sidebar syncs both ways with one Google Tasks list (default "My Tasks"; set
+`google_tasks.list` to a list title to use, or create, a separate list). It syncs every 60 s and right
+after each edit. Title ↔ task, description ↔ notes, due date ↔ due, archived ↔ completed, delete ↔ delete.
+If a task is edited in both places between syncs, the dashboard edit wins.
+New tasks that are already completed in Google aren't imported. Archived tasks stay in the archive
+even after Google clears them.
+
+1. https://console.cloud.google.com → create (or pick) a project → **APIs & Services → Library** →
+   enable **Google Tasks API**.
+2. **OAuth consent screen**: External, add yourself as a test user, then **Publish app**. While the
+   app is in *Testing*, Google expires the login after 7 days. It doesn't need verification for
+   your own account; just click past the "unverified app" warning.
+3. **Credentials → Create credentials → OAuth client ID → Desktop app**. Copy the id/secret into
+   `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` in `.env`.
+4. `.venv/bin/python -m app.gtasks auth`: signs in through the browser, saves the refresh token to
+   `data/google_tasks_token.json`, then syncs once. Existing sidebar tasks are uploaded.
+5. `systemctl --user restart solar-dashboard`. The status bar shows `google tasks · synced Xm ago`.
+
+`.venv/bin/python -m app.gtasks sync` syncs once by hand. If the status bar says the login expired,
+re-run step 4.
+
 ## Checking a source
 
 ```bash
@@ -103,6 +127,7 @@ app/main.py           FastAPI routes + page partials
 app/jobs.py           polling scheduler (APScheduler)
 app/db.py             SQLite: items, done/muted state, sync status
 app/notify.py         notify-send alerts, deduped per item + activity
+app/gtasks.py         two-way task sidebar <-> Google Tasks sync (+ one-time OAuth login)
 app/sources/*.py      slack, monday, github fetchers (pure classify logic is unit tested)
 app/templates, static UI (vanilla JS, auto-refresh every 30s)
 ```

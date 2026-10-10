@@ -1,4 +1,4 @@
-"""SQLite store for todo items, personal tasks, their done/muted state, and sync status."""
+"""SQLite store for todo items, personal tasks (synced with Google Tasks), their done/muted state, and sync status."""
 import json
 import sqlite3
 import threading
@@ -40,9 +40,17 @@ create table if not exists todos(
   text text not null,
   description text,
   created real not null,
-  archived real                        -- null while active
+  archived real,                       -- null while active
+  due text,                            -- YYYY-MM-DD or null
+  -- Google Tasks sync (app/gtasks.py)
+  google_id text,
+  g_updated text,                      -- Google's `updated` stamp when last synced
+  dirty integer not null default 1,    -- bumped on every local edit; 0 once pushed
+  deleted integer not null default 0   -- tombstone until the delete reaches Google
 );
 """
+
+TODO_COLUMNS = "id, text, description, created, archived, due"
 
 CLOSED_RETENTION = 30 * 86400
 _lock = threading.RLock()
@@ -67,6 +75,12 @@ def init():
         # Databases created before todos had descriptions.
         if "description" not in {r[1] for r in c.execute("pragma table_info(todos)")}:
             c.execute("alter table todos add column description text")
+        # Databases created before Google Tasks sync: existing todos start dirty, so they get pushed.
+        cols = {r[1] for r in c.execute("pragma table_info(todos)")}
+        for col, decl in (("due", "text"), ("google_id", "text"), ("g_updated", "text"),
+                          ("dirty", "integer not null default 1"), ("deleted", "integer not null default 0")):
+            if col not in cols:
+                c.execute(f"alter table todos add column {col} {decl}")
 
 
 def _row(r):
@@ -248,31 +262,87 @@ def fail_interrupted_reviews():
                   "where state in ('queued','running')", (time.time(),))
 
 
-def todo_add(text, description=None):
+def todo_add(text, description=None, due=None):
     with connect() as c:
-        c.execute("insert into todos(text, description, created) values(?,?,?)",
-                  (text, description or None, time.time()))
+        c.execute("insert into todos(text, description, created, due) values(?,?,?,?)",
+                  (text, description or None, time.time(), due or None))
 
 
 def todo_describe(todo_id, description):
     with connect() as c:
-        c.execute("update todos set description=? where id=?", (description or None, todo_id))
+        c.execute("update todos set description=?, dirty=dirty+1 where id=?", (description or None, todo_id))
+
+
+def todo_set_due(todo_id, due):
+    with connect() as c:
+        c.execute("update todos set due=?, dirty=dirty+1 where id=?", (due or None, todo_id))
 
 
 def todo_set(todo_id, action):
     with connect() as c:
         if action == "archive":
-            c.execute("update todos set archived=? where id=?", (time.time(), todo_id))
+            c.execute("update todos set archived=?, dirty=dirty+1 where id=?", (time.time(), todo_id))
         elif action == "restore":
-            c.execute("update todos set archived=null where id=?", (todo_id,))
+            c.execute("update todos set archived=null, dirty=dirty+1 where id=?", (todo_id,))
         elif action == "delete":
-            c.execute("delete from todos where id=?", (todo_id,))
+            # Keep a tombstone until the sync deletes it from Google too.
+            c.execute("update todos set deleted=1, dirty=dirty+1 where id=? and google_id is not null", (todo_id,))
+            c.execute("delete from todos where id=? and google_id is null", (todo_id,))
         else:
             raise ValueError(action)
 
 
 def todo_list(archived=False):
-    sql = ("select * from todos where archived is not null order by archived desc" if archived
-           else "select * from todos where archived is null order by created")
+    sql = (f"select {TODO_COLUMNS} from todos where not deleted and archived is not null order by archived desc"
+           if archived else f"select {TODO_COLUMNS} from todos where not deleted and archived is null "
+                "order by due is null, due, created")  # dated tasks first, soonest on top
     with connect() as c:
         return [dict(r) for r in c.execute(sql)]
+
+
+# Google Tasks sync (app/gtasks.py). Each push is guarded by the row's `dirty` value when it was read,
+# so an edit made while a request is in flight stays dirty and goes out on the next sync.
+
+def todo_dirty():
+    with connect() as c:
+        return [dict(r) for r in c.execute("select * from todos where dirty > 0 order by id")]
+
+
+def todo_linked():
+    with connect() as c:
+        return [dict(r) for r in c.execute("select * from todos where google_id is not null")]
+
+
+def todo_pushed(todo_id, dirty, google_id, g_updated):
+    with connect() as c:
+        c.execute("update todos set google_id=?, g_updated=? where id=?", (google_id, g_updated, todo_id))
+        c.execute("update todos set dirty=0 where id=? and dirty=?", (todo_id, dirty))
+
+
+def todo_purge(todo_id, dirty=None):
+    """Drop a row for good (its delete reached Google, or it was deleted there)."""
+    with connect() as c:
+        if dirty is None:
+            c.execute("delete from todos where id=? and dirty=0", (todo_id,))
+        else:
+            c.execute("delete from todos where id=? and dirty=?", (todo_id, dirty))
+
+
+def todo_unlink(todo_id):
+    """Forget the Google task (it's gone there) but keep the local row."""
+    with connect() as c:
+        c.execute("update todos set google_id=null, g_updated=null where id=? and dirty=0", (todo_id,))
+
+
+def todo_pull(todo_id, text, description, archived, due, g_updated):
+    """Apply a Google-side change unless there's an unpushed local edit (local wins until pushed)."""
+    with connect() as c:
+        cur = c.execute("update todos set text=?, description=?, archived=?, due=?, g_updated=? "
+                        "where id=? and dirty=0", (text, description, archived, due, g_updated, todo_id))
+        return cur.rowcount > 0
+
+
+def todo_import(google_id, text, description, due, g_updated, created=None):
+    with connect() as c:
+        c.execute("insert into todos(text, description, created, due, google_id, g_updated, dirty) "
+                  "values(?,?,?,?,?,?,0)", (text, description, created or time.time(), due, google_id, g_updated))

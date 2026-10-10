@@ -42,6 +42,8 @@ DEFAULTS = {
     },
     "notifications": {"enabled": True, "max_individual": 4},
     "review": {"model": None, "timeout_minutes": 20, "claude_path": None, "max_findings": 6},
+    # Two-way sync of the task sidebar (needs GOOGLE_CLIENT_ID/SECRET in .env + `python -m app.gtasks auth`).
+    "google_tasks": {"enabled": True, "list": "@default", "poll_seconds": 60},
     # Encrypted snapshot for gregorybian.github.io/solar-dashboard (needs PUBLISH_PASSWORD in .env).
     "publish": {
         "enabled": True,

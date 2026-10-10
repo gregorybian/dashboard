@@ -92,3 +92,10 @@ def test_init_adds_description_to_old_todos_table(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", path)
     db.init()
     assert db.todo_list()[0]["description"] is None
+
+
+def test_dated_tasks_sort_first_soonest_on_top():
+    db.todo_add("undated")
+    db.todo_add("later", due="2026-12-01")
+    db.todo_add("sooner", due="2026-10-10")
+    assert [t["text"] for t in db.todo_list()] == ["sooner", "later", "undated"]

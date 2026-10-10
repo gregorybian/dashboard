@@ -1,10 +1,11 @@
 """Polling scheduler: each source fetches, syncs into the DB, then alerts."""
 import logging
+import threading
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from . import db, notify, publish
+from . import db, gtasks, notify, publish
 from .config import CONFIG, TOKEN_ENV, token
 from .sources import github, monday, slack
 
@@ -39,6 +40,11 @@ def start():
             run, "interval", seconds=seconds, args=[source], id=source,
             next_run_time=datetime.now(), max_instances=1, coalesce=True,
         )
+    if gtasks.enabled():
+        scheduler.add_job(
+            sync_tasks, "interval", seconds=CONFIG["google_tasks"]["poll_seconds"], id="gtasks",
+            next_run_time=datetime.now(), max_instances=1, coalesce=True,
+        )
     if publish.enabled():
         scheduler.add_job(
             publish.publish, "interval", seconds=CONFIG["publish"]["interval_seconds"], id="publish",
@@ -52,6 +58,29 @@ def refresh(source=None):
         job = scheduler.get_job(s)
         if job:
             job.modify(next_run_time=datetime.now())
+
+
+_tasks_again = threading.Event()
+
+
+def sync_tasks():
+    # A run requested while one is in progress is skipped by APScheduler (max_instances=1), so
+    # tasks_changed() also sets this flag and the running sync goes round once more.
+    while True:
+        _tasks_again.clear()
+        if gtasks.sync():
+            publish_soon()
+        if not _tasks_again.is_set():
+            break
+
+
+def tasks_changed():
+    """After a task edit: push it to Google right away, and publish shortly."""
+    _tasks_again.set()
+    job = scheduler.get_job("gtasks")
+    if job:
+        job.modify(next_run_time=datetime.now())
+    publish_soon()
 
 
 def publish_soon():

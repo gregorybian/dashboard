@@ -40,6 +40,11 @@ github:
   my_pr_no_review_days: 3
   team_pr_stale_days: 5
 
+google_tasks:
+  enabled: true                # also needs GOOGLE_CLIENT_ID/SECRET in .env + `python -m app.gtasks auth`
+  list: "@default"             # "@default" = "My Tasks"; or a list title (created if missing)
+  poll_seconds: 60
+
 review:
   model: null                  # null = Claude Code's default; e.g. "opus" or "sonnet"
   timeout_minutes: 20
