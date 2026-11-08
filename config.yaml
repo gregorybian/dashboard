@@ -28,6 +28,7 @@ slack:
 monday:
   board_ids: [9565346490]                # e.g. [1234567890]; the number in the board URL
   status_column_id: null       # null = first status column on the board
+  due_column_id: null          # null = first date column (else timeline end); past due + not done -> reminder
   done_labels: ["Done", "Complete", "Completed"]   # dimmed on the kanban
   stale_labels: ["Working on it"]   # only these columns need a weekly update ([] = all but done)
   ignored_groups: []

@@ -28,6 +28,7 @@ DEFAULTS = {
     "monday": {
         "board_ids": [],
         "status_column_id": None,
+        "due_column_id": None,
         "done_labels": ["Done"],
         "stale_labels": [],
         "ignored_groups": [],

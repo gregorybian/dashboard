@@ -126,3 +126,56 @@ def test_thread_replies_on_any_status():
     row["updates"] = [upd("u", 3, "me", replies=[("5", 1)])]
     _, items = build_board(board, [row], {**CFG, "stale_labels": ["Working on it"]}, NOW, me_id="me")
     assert [(i.id, i.kind, i.url) for i in items] == [("monday:thread:u", "reply", "ua/posts/u")]
+
+
+def test_parse_due():
+    from datetime import date
+    from app.sources.monday import parse_due
+    assert parse_due({"text": "2026-11-19"}) == date(2026, 11, 19)
+    assert parse_due({"text": "2026-10-01 - 2026-11-08"}) == date(2026, 11, 8)
+    assert parse_due({"text": ""}) is None and parse_due(None) is None
+
+
+def test_overdue_info():
+    from datetime import date, datetime, time, timedelta
+    from app.sources.monday import overdue_info
+    due = date(2026, 11, 1)
+    start = datetime.combine(due + timedelta(days=1), time()).timestamp()
+    assert overdue_info(due, None, start - 60, 7) is None            # still the due day
+    assert overdue_info(due, None, start + 60, 7)["days_late"] == 1
+    assert overdue_info(due, start - DAY, start + DAY, 7)             # updated before the date passed
+    assert overdue_info(due, start + DAY, start + 2 * DAY, 7) is None  # updated after it passed
+    assert overdue_info(due, start + DAY, start + 9 * DAY, 7)          # ...but that was a week ago
+    a = overdue_info(due, None, start + DAY, 7)["marker"]
+    b = overdue_info(due, None, start + 8 * DAY, 7)["marker"]
+    assert a < b                                                      # dismissed reminder returns weekly
+    assert overdue_info(None, None, start, 7) is None
+
+
+def test_overdue_replaces_stale_and_skips_done():
+    from datetime import date, timedelta
+    board = {"id": "1", "name": "P", "columns": [
+        {"id": "status", "title": "Status", "type": "status", "settings_str": "{}"},
+        {"id": "person", "title": "Owner", "type": "people", "settings_str": "{}"},
+        {"id": "due", "title": "Date", "type": "date", "settings_str": "{}"}]}
+    past = (date.fromtimestamp(NOW) - timedelta(days=3)).isoformat()
+    future = (date.fromtimestamp(NOW) + timedelta(days=3)).isoformat()
+    rows = [item("a", "Working on it", 10), item("b", "Done", 10), item("c", "Upcoming", 10),
+            item("d", "Working on it", 10)]
+    for r, d in zip(rows, [past, past, past, future]):
+        r["column_values"].append({"id": "due", "type": "date", "text": d})
+    kanban, items = build_board(board, rows, {**CFG, "stale_labels": ["Working on it"]}, NOW)
+    assert sorted((i.id, i.kind) for i in items) == [
+        ("monday:d", "stale"), ("monday:due:a", "overdue"), ("monday:due:c", "overdue")]
+    a = next(i for i in items if i.id == "monday:due:a")
+    assert a.meta["days_late"] == 3 and a.meta["item_id"] == "a" and "still Working on it" in a.body
+    card = next(c for l in kanban["lanes"] for c in l["cards"] if c["id"] == "a")
+    assert card["overdue"] and card["due"] == past
+
+
+def test_ping_body_mentions_missed_due_date():
+    from datetime import date, timedelta
+    due = date.fromtimestamp(NOW) - timedelta(days=2)
+    body = ping_body({"42": "Sam"}, "MPPT", NOW - 9 * DAY, NOW, "https://x.monday.com", due)
+    assert "was due on" in body and "new date" in body
+    assert "was due on" not in ping_body({"42": "Sam"}, "MPPT", None, NOW, "https://x", due + timedelta(days=5))

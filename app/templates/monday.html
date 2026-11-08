@@ -1,6 +1,13 @@
 {% from "_macros.html" import item_card, closed_list, review_ctl with context %}
 {% set stale = items|selectattr("kind", "equalto", "stale")|list %}
-{% set replies = items|rejectattr("kind", "equalto", "stale")|list %}
+{% set overdue = items|selectattr("kind", "equalto", "overdue")|list %}
+{% set replies = items|selectattr("kind", "equalto", "reply")|list %}
+{% if overdue %}
+<section>
+  <h2>Past due date, ask for an update <span class="muted">{{ overdue|length }}</span></h2>
+  {% for it in overdue %}{{ item_card(it) }}{% endfor %}
+</section>
+{% endif %}
 <div class="columns">
   <section>
     <h2>No update this week <span class="muted">{{ stale|length }}</span></h2>
@@ -23,6 +30,7 @@
       {% for c in lane.cards %}
       <a class="card {{ 'stale' if c.stale }}" href="{{ c.url }}" target="_blank" rel="noopener">
         <div class="card-name">{{ c.name }}</div>
+        {% if c.due and not lane.done %}<div class="card-due {{ 'card-late' if c.overdue }}">📅 due {{ c.due|due_label|first }}</div>{% endif %}
         <div class="card-meta">
           {% if c.owner %}<span>{{ c.owner }}</span>{% endif %}
           <span>{% if c.last_update_days is none %}no updates{% else %}updated {{ c.last_update_days }}d ago{% endif %}</span>

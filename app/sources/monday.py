@@ -2,11 +2,11 @@
 import html
 import json
 import time
-from datetime import datetime
+from datetime import date, datetime, time as dtime, timedelta
 
 import httpx
 
-from ..models import NORMAL, Item, SyncResult
+from ..models import HIGH, NORMAL, Item, SyncResult
 
 API = "https://api.monday.com/v2"
 
@@ -38,6 +38,7 @@ STATUS_TYPES = {"status", "color"}
 # Pings posted from the dashboard start with this, so they don't count as a project update.
 PING_PREFIX = "🔔 Update reminder"
 PEOPLE_TYPES = {"people", "multiple-person"}
+DATE_TYPES = {"date", "timeline"}
 
 
 def _gql(token, query, variables):
@@ -72,6 +73,45 @@ def stale_info(last_update_ts, created_ts, now, stale_days):
         "never": last_update_ts is None,
         "marker": base + int(age // period) * period,
     }
+
+
+def parse_due(value):
+    """Due date from a date column's text ("2026-11-19", maybe with a time) or a timeline's
+    ("2026-10-01 - 2026-11-08", the end date counts). None if empty or unparseable."""
+    text = (value or {}).get("text") or ""
+    part = text.split(" - ")[-1].strip()[:10]
+    try:
+        return date.fromisoformat(part)
+    except ValueError:
+        return None
+
+
+def overdue_info(due, last_update_ts, now, stale_days):
+    """None unless the due date has passed and the owner still owes an update. The reminder
+    starts the day after the due date and clears when a real update is posted after that;
+    if the item stays open it comes back every stale_days without a new update."""
+    if not due:
+        return None
+    due_ts = datetime.combine(due + timedelta(days=1), dtime()).timestamp()  # local midnight after due
+    if now < due_ts:
+        return None
+    updated_since = last_update_ts is not None and last_update_ts >= due_ts
+    base = last_update_ts if updated_since else due_ts
+    period = stale_days * 86400
+    age = now - base
+    if updated_since and age < period:
+        return None
+    return {
+        "days_late": (date.fromtimestamp(now) - due).days,
+        "marker": base + int(age // period) * period,
+    }
+
+
+def _due_column(columns, cfg):
+    want = cfg.get("due_column_id")
+    return (next((c for c in columns if c["id"] == want), None) if want else None) \
+        or next((c for c in columns if c["type"] == "date"), None) \
+        or next((c for c in columns if c["type"] == "timeline"), None)
 
 
 def _lane_order(column):
@@ -149,6 +189,7 @@ def build_board(board, items, cfg, now, me_id=None):
         (c for c in columns if c["id"] == cfg["status_column_id"]), None
     ) or next((c for c in columns if c["type"] in STATUS_TYPES), None)
     people_col = next((c for c in columns if c["type"] in PEOPLE_TYPES), None)
+    due_col = _due_column(columns, cfg)
     done = {d.lower() for d in cfg["done_labels"]}
     watched = {s.lower() for s in cfg["stale_labels"]}
     ignored = set(cfg["ignored_groups"])
@@ -167,7 +208,10 @@ def build_board(board, items, cfg, now, me_id=None):
         last_ts = _ts(upd["created_at"]) if upd else None
         ping_ts = _ts(ping["created_at"]) if ping else None
         watch = status.lower() in watched if watched else status.lower() not in done
-        info = stale_info(last_ts, _ts(it.get("created_at")), now, cfg["stale_days"]) if watch else None
+        due = parse_due(values.get(due_col["id"])) if due_col else None
+        late = overdue_info(due, last_ts, now, cfg["stale_days"]) if status.lower() not in done else None
+        # An overdue item gets the due-date reminder instead of the weekly one.
+        info = stale_info(last_ts, _ts(it.get("created_at")), now, cfg["stale_days"]) if watch and not late else None
         if watch and me_id:
             for u in unanswered_updates(it.get("updates"), me_id, now - cfg["reply_lookback_days"] * 86400):
                 who = (u.get("creator") or {}).get("name") or "someone"
@@ -196,9 +240,29 @@ def build_board(board, items, cfg, now, me_id=None):
             "group": group, "status": status,
             "last_update_days": int((now - last_ts) // 86400) if last_ts else None,
             "last_update_by": (upd.get("creator") or {}).get("name") if upd else None,
-            "stale": info is not None,
+            "stale": info is not None or late is not None,
+            "due": due.isoformat() if due else None,
+            "overdue": late is not None,
         }
         lanes.setdefault(status, []).append(card)
+        ping_meta = {"item_id": it["id"],
+                     "owner_ids": [i for i in owner_ids(people) if i != me_id],  # people to ping
+                     "mine": me_id in owner_ids(people),
+                     "pinged_ts": ping_ts}
+        if late:
+            when = "yesterday" if late["days_late"] == 1 else f"{late['days_late']}d ago"
+            if last_ts is None:
+                last = "no updates ever posted"
+            else:
+                last = f"last update {int((now - last_ts) // 86400)}d ago by {card['last_update_by'] or 'someone'}"
+            stale_items.append(Item(
+                id=f"monday:due:{it['id']}", source="monday", kind="overdue",
+                title=it["name"], body=f"Due {due:%b} {due.day} ({when}), still {status}; {last}",
+                url=card["url"], author=owner, ts=last_ts or 0.0, updated_ts=late["marker"],
+                priority=HIGH,
+                meta={"board": board["name"], "status": status, "owner": owner, "due": due.isoformat(),
+                      "days_late": late["days_late"], **ping_meta},
+            ))
         if info:
             if info["never"]:
                 body = "No updates ever posted"
@@ -210,10 +274,7 @@ def build_board(board, items, cfg, now, me_id=None):
                 title=it["name"], body=body, url=card["url"], author=owner,
                 ts=last_ts or 0.0, updated_ts=info["marker"], priority=NORMAL,
                 meta={"board": board["name"], "status": status, "owner": owner, "days": info["days"],
-                      "item_id": it["id"],
-                      "owner_ids": [i for i in owner_ids(people) if i != me_id],  # people to ping
-                      "mine": me_id in owner_ids(people),
-                      "pinged_ts": ping_ts},
+                      **ping_meta},
             ))
 
     kanban = {
@@ -250,7 +311,8 @@ query($id: ID!) {
   me { id }
   items(ids: [$id]) {
     id name url
-    column_values { id type ... on PeopleValue { persons_and_teams { id kind } } }
+    board { columns { id title type } }
+    column_values { id type text ... on PeopleValue { persons_and_teams { id kind } } }
     updates(limit: 10) { id created_at text_body creator { id name } replies { id created_at text_body creator { id name } } }
   }
 }
@@ -265,7 +327,7 @@ mutation($item: ID!, $body: String!, $mentions: [UpdateMention]) {
 """
 
 
-def ping_body(names_by_id, item_name, last_ts, now, account_url):
+def ping_body(names_by_id, item_name, last_ts, now, account_url, due=None):
     mentions = " ".join(
         f'<a class="user_mention_editor router" href="{account_url}/users/{uid}" '
         f'data-mention-type="User" data-mention-id="{uid}" target="_blank" '
@@ -274,6 +336,10 @@ def ping_body(names_by_id, item_name, last_ts, now, account_url):
     )
     last = (f"the last update was {int((now - last_ts) // 86400)} days ago"
             if last_ts else "there hasn't been an update yet")
+    if due and date.fromtimestamp(now) > due:
+        return (f"<p>{PING_PREFIX}: Hi {mentions}, <b>{html.escape(item_name)}</b> was due on "
+                f"{due:%b} {due.day}. Could you post a quick update on where it's at, and a new "
+                f"date if it needs one? Right now {last}. Thanks!</p>")
     return (f"<p>{PING_PREFIX}: Hi {mentions}, could you post a quick update on where "
             f"<b>{html.escape(item_name)}</b> is at? Right now {last}. Thanks!</p>")
 
@@ -291,7 +357,9 @@ def ping(cfg, token, item_id):
     names = {str(u["id"]): u["name"] for u in _gql(token, USERS, {"ids": ids})["users"]}
     upd, _ = split_updates(it.get("updates"))
     account_url = (it.get("url") or "").split("/boards/")[0]
-    body = ping_body(names, it["name"], _ts(upd["created_at"]) if upd else None, time.time(), account_url)
+    due_col = _due_column((it.get("board") or {}).get("columns") or [], cfg["monday"])
+    due = parse_due(next((v for v in it["column_values"] if due_col and v["id"] == due_col["id"]), None))
+    body = ping_body(names, it["name"], _ts(upd["created_at"]) if upd else None, time.time(), account_url, due)
     _gql(token, CREATE_UPDATE, {"item": str(item_id), "body": body,
                                 "mentions": [{"id": i, "type": "User"} for i in names]})
     return list(names.values())
