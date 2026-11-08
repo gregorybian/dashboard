@@ -66,14 +66,18 @@ place. Existing rows start with `dirty=1`, so they get pushed on the first sync.
     archive.
   - A linked task missing from Google: active rows are deleted locally; archived rows are only
     unlinked (Google purges old completed tasks, and the local archive should keep them).
+- Sign in button (shown when the status error starts with `AuthError`): `POST /api/gtasks/login`
+  runs `gtasks.web_login()`, which starts the same loopback flow (`begin_auth()`) in a thread and
+  returns the URL; the JS opens a blank tab on click (so popup blockers allow it) and points it there.
+  After the token is saved, `jobs.signed_in()` syncs now (adding the job if it didn't exist at startup).
 - Tests: `tests/test_gtasks.py` uses an in-memory `FakeGoogle` patched over `gtasks._api`.
 
 ### Current Google setup state (as of 2026-10-09)
 - Google Cloud project "Google Tasks Project": Tasks API enabled, Desktop-app OAuth client in `.env`.
 - The OAuth consent screen is still in **Testing** (branding unfinished), with Greg's Gmail added
   as a test user. Testing-mode refresh tokens **expire after 7 days**: the status bar then shows
-  "Google login expired…" and the fix is re-running `python -m app.gtasks auth`. Publishing the app
-  (name + support/developer emails, no logo, so no verification) removes the expiry.
+  "Google login expired" with a **Sign in** button (or re-run `python -m app.gtasks auth`).
+  Publishing the app (name + support/developer emails, no logo, so no verification) removes the expiry.
   "Access blocked … Error 403: access_denied" at sign-in means the account isn't a test user.
 - Syncs with "My Tasks" (`list: "@default"`). That list has about 700 tasks (mostly old completed),
   so each pull is about 7 paged GETs a minute (about 10k requests/day, under the 50k/day default

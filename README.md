@@ -13,6 +13,8 @@ A local web dashboard at **http://127.0.0.1:8765** that puts everything waiting 
   re-flagged weekly until someone posts. **📣 Ping owner** (click twice) posts an update on the item
   @mentioning the People-column owner(s). Pings start with "🔔 Update reminder" and don't count as
   a project update.
+  **Updated, needs your comment** lists new updates by others on watched projects, plus replies
+  by others in any thread you started or replied in (any status), until you reply there.
 - **GitHub** (org `UBC-Solar`) — PRs where your review is requested; your own PRs that have failing CI,
   requested changes, approval waiting to merge, or no review after 3 days; team PRs idle 5+ days.
 
@@ -96,7 +98,7 @@ even after Google clears them.
 5. `systemctl --user restart solar-dashboard`. The status bar shows `google tasks · synced Xm ago`.
 
 `.venv/bin/python -m app.gtasks sync` syncs once by hand. If the status bar says the login expired,
-re-run step 4.
+click its **Sign in** button (or re-run step 4).
 
 ## Checking a source
 

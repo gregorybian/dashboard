@@ -120,6 +120,21 @@ document.addEventListener("click", async e => {
     if (data.message) btn.outerHTML = `<span class="rv-ok">✓ ${data.message}</span>`;
     return setTimeout(() => load(true), data.message ? 3000 : 0);
   }
+  // Google Tasks login expired: the server starts the OAuth flow and returns the sign-in URL.
+  if (e.target.id === "gtasks-login") {
+    const w = window.open("", "_blank");
+    e.target.disabled = true;
+    e.target.textContent = "Waiting for sign-in…";
+    const r = await fetch("/api/gtasks/login", { method: "POST" });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      w?.close();
+      e.target.outerHTML = `<span class="rv-fail">⚠ ${data.detail || `Failed (${r.status})`}</span>`;
+      return;
+    }
+    if (w) { w.opener = null; w.location = data.url; } else window.open(data.url, "_blank");
+    return;
+  }
   if (e.target.id === "refresh") {
     e.target.disabled = true;
     await fetch("/api/refresh", { method: "POST" });

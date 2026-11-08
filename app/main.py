@@ -168,6 +168,13 @@ def todo_action(todo_id: int, action: str):
     return Response(status_code=204)
 
 
+@app.post("/api/gtasks/login")
+def gtasks_login():
+    if not gtasks.client():
+        raise HTTPException(400, "Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env first")
+    return {"url": gtasks.web_login(jobs.signed_in)}
+
+
 @app.post("/api/review", status_code=202)
 def start_review(repo: str, number: int):
     org = CONFIG["github"]["org"]

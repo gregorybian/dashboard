@@ -14,7 +14,7 @@ ITEM_FIELDS = """
   id name url created_at
   group { title }
   column_values { id type text ... on PeopleValue { persons_and_teams { id kind } } }
-  updates(limit: 10) { id created_at text_body creator { id name } replies { created_at creator { id } } }
+  updates(limit: 10) { id created_at text_body creator { id name } replies { id created_at text_body creator { id name } } }
 """
 
 BOARDS = """
@@ -123,6 +123,25 @@ def unanswered_updates(updates, me_id, since):
     return out
 
 
+def unanswered_replies(updates, me_id, since):
+    """[(update, latest reply)] for threads you started or replied in where someone else has
+    replied since your last word in the thread."""
+    def mine(x):
+        return str((x.get("creator") or {}).get("id")) == me_id
+
+    out = []
+    for u in updates or []:
+        replies = u.get("replies") or []
+        my_times = [_ts(x["created_at"]) for x in [u, *replies] if mine(x)]
+        if not my_times:
+            continue
+        after = max(max(my_times), since)
+        theirs = [r for r in replies if not mine(r) and _ts(r["created_at"]) > after]
+        if theirs:
+            out.append((u, max(theirs, key=lambda r: _ts(r["created_at"]))))
+    return out
+
+
 def build_board(board, items, cfg, now, me_id=None):
     """Returns (kanban board dict, list of Items: stale projects + updates awaiting your reply)."""
     columns = board["columns"]
@@ -158,6 +177,18 @@ def build_board(board, items, cfg, now, me_id=None):
                     title=it["name"], body=f"{who}: {text[:280]}{'…' if len(text) > 280 else ''}",
                     url=f"{it.get('url', '')}/posts/{u['id']}", author=who,
                     ts=_ts(u["created_at"]), updated_ts=_ts(u["created_at"]), priority=NORMAL,
+                    meta={"board": board["name"], "status": status, "owner": owner},
+                ))
+        if me_id:  # replies in your threads count on every status, not just watched ones
+            since = now - cfg["reply_lookback_days"] * 86400
+            for u, r in unanswered_replies(it.get("updates"), me_id, since):
+                who = (r.get("creator") or {}).get("name") or "someone"
+                text = " ".join((r.get("text_body") or "").split())
+                stale_items.append(Item(
+                    id=f"monday:thread:{u['id']}", source="monday", kind="reply",
+                    title=it["name"], body=f"{who} replied: {text[:280]}{'…' if len(text) > 280 else ''}",
+                    url=f"{it.get('url', '')}/posts/{u['id']}", author=who,
+                    ts=_ts(r["created_at"]), updated_ts=_ts(r["created_at"]), priority=NORMAL,
                     meta={"board": board["name"], "status": status, "owner": owner},
                 ))
         card = {
@@ -220,7 +251,7 @@ query($id: ID!) {
   items(ids: [$id]) {
     id name url
     column_values { id type ... on PeopleValue { persons_and_teams { id kind } } }
-    updates(limit: 10) { id created_at text_body creator { id name } replies { created_at creator { id } } }
+    updates(limit: 10) { id created_at text_body creator { id name } replies { id created_at text_body creator { id name } } }
   }
 }
 """

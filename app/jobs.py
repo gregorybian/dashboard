@@ -41,16 +41,27 @@ def start():
             next_run_time=datetime.now(), max_instances=1, coalesce=True,
         )
     if gtasks.enabled():
-        scheduler.add_job(
-            sync_tasks, "interval", seconds=CONFIG["google_tasks"]["poll_seconds"], id="gtasks",
-            next_run_time=datetime.now(), max_instances=1, coalesce=True,
-        )
+        add_tasks_job()
     if publish.enabled():
         scheduler.add_job(
             publish.publish, "interval", seconds=CONFIG["publish"]["interval_seconds"], id="publish",
             next_run_time=datetime.now() + timedelta(seconds=30), max_instances=1, coalesce=True,
         )
     scheduler.start()
+
+
+def add_tasks_job():
+    scheduler.add_job(
+        sync_tasks, "interval", seconds=CONFIG["google_tasks"]["poll_seconds"], id="gtasks",
+        next_run_time=datetime.now(), max_instances=1, coalesce=True, replace_existing=True,
+    )
+
+
+def signed_in():
+    """After signing in from the dashboard: sync now (adding the job if this was the first sign-in)."""
+    if scheduler.running and not scheduler.get_job("gtasks") and gtasks.enabled():
+        add_tasks_job()
+    tasks_changed()
 
 
 def refresh(source=None):

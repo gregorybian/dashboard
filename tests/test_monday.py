@@ -1,5 +1,5 @@
 from app.sources.monday import (PING_PREFIX, build_board, ping_body, split_updates, stale_info,
-                                unanswered_updates)
+                                unanswered_replies, unanswered_updates)
 
 DAY = 86400
 NOW = 100 * DAY
@@ -102,3 +102,27 @@ def test_unanswered_updates():
         upd("p", 0, "5", text=f"{PING_PREFIX}: hi"),  # a ping, never needs a reply
     ]
     assert [u["id"] for u in unanswered_updates(ups, "me", since)] == ["u1"]
+
+
+def test_unanswered_replies():
+    since = NOW - 14 * DAY
+    ups = [
+        upd("t1", 5, "me", replies=[("5", 1)]),             # reply to my update
+        upd("t2", 5, "6", replies=[("me", 4), ("5", 2)]),   # reply after I joined the thread
+        upd("t3", 5, "me", replies=[("5", 3), ("me", 2)]),  # I answered it
+        upd("t4", 5, "6", replies=[("5", 1)]),              # not my thread
+        upd("t5", 30, "me", replies=[("5", 20)]),           # too old
+        upd("t6", 5, "me", replies=[("5", 3), ("6", 1)]),   # latest of several replies
+    ]
+    got = [(u["id"], r["creator"]["id"]) for u, r in unanswered_replies(ups, "me", since)]
+    assert got == [("t1", "5"), ("t2", "5"), ("t6", "6")]
+
+
+def test_thread_replies_on_any_status():
+    board = {"id": "1", "name": "P", "columns": [
+        {"id": "status", "title": "Status", "type": "status", "settings_str": "{}"},
+        {"id": "person", "title": "Owner", "type": "people", "settings_str": "{}"}]}
+    row = item("a", "Done", 10)
+    row["updates"] = [upd("u", 3, "me", replies=[("5", 1)])]
+    _, items = build_board(board, [row], {**CFG, "stale_labels": ["Working on it"]}, NOW, me_id="me")
+    assert [(i.id, i.kind, i.url) for i in items] == [("monday:thread:u", "reply", "ua/posts/u")]

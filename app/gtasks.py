@@ -9,7 +9,8 @@ rows to Google, then pulls the whole list:
   kept (Google purges old completed tasks; the local archive shouldn't lose them);
 - completed in Google <-> archived here; due date <-> due (Google keeps only the date).
 
-One-time login: `python -m app.gtasks auth` (see README). `python -m app.gtasks sync` syncs once.
+One-time login: `python -m app.gtasks auth` (see README), or the status bar's Sign in button when
+the login has expired. `python -m app.gtasks sync` syncs once.
 """
 import base64
 import hashlib
@@ -18,6 +19,7 @@ import json
 import logging
 import os
 import secrets
+import threading
 import time
 import urllib.parse
 import webbrowser
@@ -71,7 +73,7 @@ def _access_token():
     }, timeout=30)
     if r.status_code in (400, 401):
         raise AuthError(f"Google login expired or revoked ({r.json().get('error')}): "
-                        "run .venv/bin/python -m app.gtasks auth")
+                        "click Sign in, or run .venv/bin/python -m app.gtasks auth")
     r.raise_for_status()
     data = r.json()
     _access.update(token=data["access_token"], expires=time.time() + data.get("expires_in", 3600))
@@ -222,10 +224,10 @@ def sync():
     return bool(pulled)
 
 
-def authorize():
-    """Installed-app OAuth (loopback redirect + PKCE); saves the refresh token to TOKEN_PATH."""
-    if not client():
-        raise SystemExit("Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env first (see README).")
+def begin_auth():
+    """Start the installed-app OAuth flow (loopback redirect + PKCE). Returns (sign-in URL, finish):
+    finish() waits up to 5 minutes for the browser's redirect and saves the refresh token to
+    TOKEN_PATH, raising AuthError if sign-in fails."""
     cid, secret = client()
     verifier = secrets.token_urlsafe(64)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
@@ -255,28 +257,71 @@ def authorize():
         "access_type": "offline", "prompt": "consent", "state": state,
         "code_challenge": challenge, "code_challenge_method": "S256",
     })
+
+    def finish():
+        server.timeout = 5
+        deadline = time.time() + 300
+        while not got and time.time() < deadline:  # stray requests (favicon) are rejected by `state`
+            server.handle_request()
+        server.server_close()
+        if "code" not in got:
+            raise AuthError(f"Sign-in failed: {got.get('error', 'timed out')}")
+        r = httpx.post(TOKEN_URL, data={
+            "client_id": cid, "client_secret": secret, "code": got["code"], "code_verifier": verifier,
+            "redirect_uri": redirect, "grant_type": "authorization_code",
+        }, timeout=30)
+        _check(r)
+        token = r.json().get("refresh_token")
+        if not token:
+            raise AuthError("Google didn't return a refresh token; remove the app's access at "
+                            "myaccount.google.com/permissions and try again.")
+        TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+        TOKEN_PATH.touch(mode=0o600)
+        TOKEN_PATH.write_text(json.dumps({"refresh_token": token}))
+        _access["token"] = None
+
+    return url, finish
+
+
+def authorize():
+    """`python -m app.gtasks auth`: sign in through the browser from the command line."""
+    if not client():
+        raise SystemExit("Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env first (see README).")
+    url, finish = begin_auth()
     print(f"Opening the Google sign-in page. If it doesn't open, visit:\n\n{url}\n", flush=True)
     webbrowser.open(url)
-    server.timeout = 5
-    deadline = time.time() + 300
-    while not got and time.time() < deadline:  # stray requests (favicon) are rejected by `state`
-        server.handle_request()
-    server.server_close()
-    if "code" not in got:
-        raise SystemExit(f"Sign-in failed: {got.get('error', 'timed out')}")
-    r = httpx.post(TOKEN_URL, data={
-        "client_id": cid, "client_secret": secret, "code": got["code"], "code_verifier": verifier,
-        "redirect_uri": redirect, "grant_type": "authorization_code",
-    }, timeout=30)
-    _check(r)
-    token = r.json().get("refresh_token")
-    if not token:
-        raise SystemExit("Google didn't return a refresh token; remove the app's access at "
-                         "myaccount.google.com/permissions and try again.")
-    TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-    TOKEN_PATH.touch(mode=0o600)
-    TOKEN_PATH.write_text(json.dumps({"refresh_token": token}))
+    try:
+        finish()
+    except AuthError as e:
+        raise SystemExit(str(e))
     print(f"Saved {TOKEN_PATH.relative_to(ROOT)}.")
+
+
+_login = {"url": None, "thread": None}
+_login_lock = threading.Lock()
+
+
+def web_login(on_done):
+    """The dashboard's "Sign in" button: start the flow in a thread (or reuse the one still waiting)
+    and return the sign-in URL for the browser to open. on_done() runs after the token is saved."""
+    with _login_lock:
+        if _login["thread"] and _login["thread"].is_alive():
+            return _login["url"]
+        url, finish = begin_auth()
+
+        def run():
+            try:
+                finish()
+            except Exception as e:
+                log.exception("Google sign-in failed")
+                db.set_error(STATUS, f"{type(e).__name__}: {e}")
+                return
+            log.info("Google Tasks: signed in from the dashboard")
+            on_done()
+
+        _login.update(url=url, thread=threading.Thread(target=run, daemon=True))
+        _login["thread"].start()
+        return url
 
 
 if __name__ == "__main__":
